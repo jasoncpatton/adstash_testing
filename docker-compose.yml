@@ -1,0 +1,187 @@
+x-test-runner-common: &test-runner-common
+  volumes:
+    - ./tests:/tests:ro
+    - ../htcondor/src/condor_scripts/adstash:/opt/condor/libexec/adstash:ro
+    - ../htcondor/src/condor_scripts/condor_adstash:/usr/local/bin/condor_adstash:ro
+  environment: &test-runner-env
+    - ES7_HOST=es7:9200
+    - ES8_HOST=es8:9200
+    - ES9_HOST=es9:9200
+    - OS2_HOST=os2:9200
+    - OS3_HOST=os3:9200
+    - _CONDOR_CONDOR_HOST=condor
+    - _CONDOR_SEC_DEFAULT_AUTHENTICATION=REQUIRED
+    - _CONDOR_SEC_DEFAULT_AUTHENTICATION_METHODS=CLAIMTOBE
+    - _CONDOR_SEC_DEFAULT_INTEGRITY=OPTIONAL
+    - _CONDOR_SEC_DEFAULT_ENCRYPTION=NEVER
+    - _CONDOR_LIBEXEC=/opt/condor/libexec
+    - _CONDOR_SEC_CLAIMTOBE_IDENTITY=submituser@testing
+
+services:
+
+  es7:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.23
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - xpack.ml.enabled=false
+      - xpack.watcher.enabled=false
+      - xpack.graph.enabled=false
+      - stack.templates.enabled=false
+      - ingest.geoip.downloader.enabled=false
+      - cluster.deprecation_indexing.enabled=false
+      - cluster.routing.allocation.disk.threshold_enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    tmpfs:
+      - /usr/share/elasticsearch/data:uid=1000,gid=1000
+    ports:
+      - "9207:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  es8:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.19.20
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - xpack.ml.enabled=false
+      - xpack.watcher.enabled=false
+      - xpack.graph.enabled=false
+      - xpack.profiling.enabled=false
+      - stack.templates.enabled=false
+      - action.destructive_requires_name=false
+      - ingest.geoip.downloader.enabled=false
+      - cluster.deprecation_indexing.enabled=false
+      - cluster.routing.allocation.disk.threshold_enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    tmpfs:
+      - /usr/share/elasticsearch/data:uid=1000,gid=1000
+    ports:
+      - "9208:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  es9:
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.4.4
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - xpack.ml.enabled=false
+      - xpack.watcher.enabled=false
+      - xpack.graph.enabled=false
+      - xpack.profiling.enabled=false
+      - stack.templates.enabled=false
+      - action.destructive_requires_name=false
+      - ingest.geoip.downloader.enabled=false
+      - cluster.deprecation_indexing.enabled=false
+      - cluster.routing.allocation.disk.threshold_enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    tmpfs:
+      - /usr/share/elasticsearch/data:uid=1000,gid=1000
+    ports:
+      - "9209:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  os2:
+    image: opensearchproject/opensearch:2.19.4
+    environment:
+      - discovery.type=single-node
+      - plugins.index_state_management.enabled=false
+      - plugins.index_state_management.history.enabled=false
+      - plugins.anomaly_detection.enabled=false
+      - plugins.alerting.alert_history_enabled=false
+      - cluster.routing.allocation.disk.threshold_enabled=false
+      - action.destructive_requires_name=false
+      - DISABLE_SECURITY_PLUGIN=true
+      - DISABLE_INSTALL_DEMO_CONFIG=true
+      - DISABLE_PERFORMANCE_ANALYZER_AGENT_CLI=true
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=NotUsed_SecurityDisabled1!
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+    tmpfs:
+      - /usr/share/opensearch/data:uid=1000,gid=1000
+    ports:
+      - "9202:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  os3:
+    image: opensearchproject/opensearch:3.5.0
+    environment:
+      - discovery.type=single-node
+      - plugins.index_state_management.history.enabled=false
+      - plugins.anomaly_detection.enabled=false
+      - plugins.alerting.alert_history_enabled=false
+      - cluster.routing.allocation.disk.threshold_enabled=false
+      - action.destructive_requires_name=false
+      - DISABLE_SECURITY_PLUGIN=true
+      - DISABLE_INSTALL_DEMO_CONFIG=true
+      - DISABLE_PERFORMANCE_ANALYZER_AGENT_CLI=true
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=NotUsed_SecurityDisabled1!
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+    tmpfs:
+      - /usr/share/opensearch/data:uid=1000,gid=1000
+    ports:
+      - "9203:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  condor:
+    image: htcondor/mini:lts
+    hostname: ap.example.edu
+    volumes:
+      - ./condor_config.local:/etc/condor/config.d/99-testing.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "condor_status -schedd || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  # elasticsearch-py 7.x + opensearch-py 2.x (current default)
+  test-runner:
+    <<: *test-runner-common
+    build:
+      context: .
+      dockerfile: Dockerfile.test-runner
+
+  # elasticsearch-py 8.x + opensearch-py 2.x
+  test-runner-es8py:
+    <<: *test-runner-common
+    build:
+      context: .
+      dockerfile: Dockerfile.test-runner
+      args:
+        ES_PY_VERSION: "elasticsearch>=8,<9"
+
+  # elasticsearch-py 9.x + opensearch-py 2.x
+  test-runner-es9py:
+    <<: *test-runner-common
+    build:
+      context: .
+      dockerfile: Dockerfile.test-runner
+      args:
+        ES_PY_VERSION: "elasticsearch>=9,<10"
+
+  # opensearch-py 3.x + elasticsearch-py 7.x
+  test-runner-os3py:
+    <<: *test-runner-common
+    build:
+      context: .
+      dockerfile: Dockerfile.test-runner
+      args:
+        OS_PY_VERSION: "opensearch-py>=3,<4"

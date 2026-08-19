@@ -1,0 +1,14 @@
+# Bind to all interfaces so other containers can reach us
+BIND_ALL_INTERFACES = TRUE
+
+# Use CLAIMTOBE auth so the test-runner can claim an identity
+SEC_DEFAULT_AUTHENTICATION = REQUIRED
+SEC_DEFAULT_AUTHENTICATION_METHODS = CLAIMTOBE, FS
+SEC_DEFAULT_INTEGRITY = OPTIONAL
+SEC_DEFAULT_ENCRYPTION = NEVER
+
+# Allow anyone on the Docker network to read and write
+ALLOW_READ = *
+ALLOW_WRITE = *
+ALLOW_NEGOTIATOR = *
+ALLOW_ADMINISTRATOR = $(CONDOR_HOST), $(IP_ADDRESS)
