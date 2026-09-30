@@ -77,24 +77,24 @@ def completed_job(schedd):
         "requirements": "!isUndefined(TARGET.Arch)",
         "log": "/tmp/test_job.log",
     })
-    result = schedd.submit(submit, count=1)
+    result = schedd.submit(submit, count=2)
     cluster_id = result.cluster()
-    print(f"\nSubmitted job {cluster_id}.0")
+    print(f"\nSubmitted jobs {cluster_id}.0-1")
 
-    # Poll until the job leaves the queue
+    # Poll until both jobs leave the queue
     for attempt in range(60):
         jobs = schedd.query(
             constraint=f"ClusterId == {cluster_id}",
             projection=["ClusterId", "ProcId", "JobStatus"],
         )
         if not jobs:
-            print(f"Job {cluster_id}.0 has left the queue")
+            print(f"Jobs {cluster_id}.0-1 have left the queue")
             break
-        status = jobs[0]["JobStatus"]
-        print(f"Job {cluster_id}.0 status: {status}")
+        statuses = {j["ProcId"]: j["JobStatus"] for j in jobs}
+        print(f"Jobs {cluster_id} statuses: {statuses}")
         time.sleep(2)
     else:
-        pytest.fail(f"Job {cluster_id}.0 did not complete within 120s")
+        pytest.fail(f"Jobs {cluster_id}.0-1 did not complete within 120s")
 
     return cluster_id
 
@@ -106,11 +106,12 @@ class TestJobHistory:
         history = list(schedd.history(
             constraint=f"ClusterId == {completed_job}",
             projection=["ClusterId", "ProcId", "JobStatus"],
-            match=1,
+            match=2,
         ))
-        assert len(history) == 1
-        assert history[0]["ClusterId"] == completed_job
-        assert history[0]["JobStatus"] == 4  # Completed
+        assert len(history) == 2
+        for h in history:
+            assert h["ClusterId"] == completed_job
+            assert h["JobStatus"] == 4  # Completed
 
 
 @pytest.fixture(params=SE_BACKENDS.keys())
@@ -212,6 +213,65 @@ def init_and_create_index(se_client, index_name, init_dir, backend_info):
     se_client.indices.create(index=f"{index_name}-000001", body=index_body)
 
 
+class TestAdstashJsonInterfaces:
+    """Run condor_adstash with --interface json/ndjson and verify output files."""
+
+    @pytest.fixture(params=["jsonfile", "ndjsonfile"])
+    def json_interface(self, request):
+        return request.param
+
+    def test_adstash_json_push(self, completed_job, json_interface, tmp_path):
+        json_dir = str(tmp_path / f"output_{json_interface}")
+        os.makedirs(json_dir, exist_ok=True)
+
+        result = subprocess.run(
+            [
+                "condor_adstash",
+                "--standalone",
+                "--schedd_history",
+                "--interface", json_interface,
+                "--json_dir", json_dir,
+                "--log_level", "DEBUG",
+                "--log_file", f"/tmp/adstash_{json_interface}.log",
+                "--checkpoint_file", f"/tmp/adstash_{json_interface}_checkpoint.json",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        print(f"\n--- condor_adstash stdout ({json_interface}) ---\n{result.stdout}")
+        print(f"--- condor_adstash stderr ({json_interface}) ---\n{result.stderr}")
+        assert result.returncode == 0, f"condor_adstash failed: {result.stderr}"
+
+        # Verify output files were created
+        output_files = sorted(os.listdir(json_dir))
+        print(f"\n{len(output_files)} file(s) in {json_dir}: {output_files}")
+
+        expected_ext = ".json" if json_interface == "jsonfile" else ".jsonl"
+        matching = [f for f in output_files if f.endswith(expected_ext)]
+        assert len(matching) > 0, f"No {expected_ext} files in {json_dir}: {output_files}"
+
+        # Read and verify content
+        output_path = os.path.join(json_dir, matching[0])
+        with open(output_path) as f:
+            content = f.read()
+        print(f"\n--- {matching[0]} ---\n{content}")
+
+        if json_interface == "jsonfile":
+            docs = json.loads(content)
+            if not isinstance(docs, list):
+                docs = [docs]
+        else:
+            lines = [line for line in content.strip().splitlines() if line.strip()]
+            assert len(lines) > 0, f"No lines in ndjson output {output_path}"
+            docs = [json.loads(line) for line in lines]
+
+        assert len(docs) == 2, f"Expected 2 docs, got {len(docs)}"
+        for doc in docs:
+            assert doc.get("ClusterId") == completed_job
+            assert doc.get("JobStatus") == 4
+
+
 class TestAdstashPush:
     """Run condor_adstash to push schedd history to each available SE backend."""
 
@@ -254,16 +314,17 @@ class TestAdstashPush:
         result = se_client.search(index=index_name, body={"query": {"match_all": {}}})
 
         hits = result["hits"]["hits"]
-        assert len(hits) > 0, f"No docs found in {index_name}"
+        assert len(hits) == 2, f"Expected 2 docs in {index_name}, got {len(hits)}"
         print(f"\n{len(hits)} doc(s) in {index_name}")
 
-        doc = hits[0]["_source"]
-        assert doc.get("ClusterId") == completed_job
-        assert doc.get("JobStatus") == 4
-        assert doc.get("Status") == "Completed"
-        assert "ScheddName" in doc
-        assert "RecordTime" in doc
-        assert "@timestamp" in doc
+        for hit in hits:
+            doc = hit["_source"]
+            assert doc.get("ClusterId") == completed_job
+            assert doc.get("JobStatus") == 4
+            assert doc.get("Status") == "Completed"
+            assert "ScheddName" in doc
+            assert "RecordTime" in doc
+            assert "@timestamp" in doc
 
     def test_cleanup_index(self, backend, se_client, index_name):
         """Clean up the test index and template."""
